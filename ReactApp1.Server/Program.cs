@@ -1,4 +1,6 @@
-﻿var builder = WebApplication.CreateBuilder(args);
+﻿using System.Diagnostics.Metrics;
+
+var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
@@ -29,10 +31,23 @@ var app = builder.Build();
 
 app.Run(async (context) =>
 {
-    var filename = "Data/test.csv"; // Путь к файлу относительно проекта сервера
+    var measurements = ReadCsv("Data/test.csv");
+    if (measurements != null)
+        await context.Response.WriteAsJsonAsync(measurements);
+    else
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsync("File not found!");
+});
 
-    if (!System.IO.File.Exists(filename)) {
-        return;
+app.Run();
+
+
+List<Measurement>? ReadCsv(string filename)
+{
+    if (!System.IO.File.Exists(filename))
+    {
+        Console.WriteLine("Файл не найден!");
+        return null;
     }
 
     var lines = System.IO.File.ReadLines(filename);
@@ -61,7 +76,65 @@ app.Run(async (context) =>
             Console.WriteLine($"Ошибка парсинга строки: {line}. Причина: {ex.Message}");
         }
     }
-    await context.Response.WriteAsJsonAsync(measurements);
-});
+    return measurements;
+}
 
-app.Run();
+public class StatisticsCalculator
+{
+    public static double? CalculateAverage(List<Measurement> measurements, Func<Measurement, double> selector)
+    {
+        if (measurements == null || measurements.Count == 0)
+        {
+            Console.WriteLine("Нет данных для расчета среднего");
+            return null;
+        }
+
+        return measurements.Average(selector);
+    }
+
+    public static double? CalculateMedian(List<Measurement> measurements, Func<Measurement, double> selector)
+    {
+        if (measurements == null || measurements.Count == 0)
+        {
+            Console.WriteLine("Нет данных для расчета медианы");
+            return null;
+        }
+
+        var values = measurements.Select(selector).OrderBy(v => v).ToList();
+        int count = values.Count;
+
+        if (count % 2 == 0)
+        {
+            return (values[count / 2 - 1] + values[count / 2]) / 2.0;
+        }
+        else
+        {
+            return values[count / 2];
+        }
+    }
+
+    public static List<double> CalculateMode(List<Measurement> measurements, Func<Measurement, double> selector)
+    {
+        if (measurements == null || measurements.Count == 0)
+        {
+            Console.WriteLine("Нет данных для расчета моды");
+            return null;
+        }
+
+        var groups = measurements
+            .Select(selector)
+            .GroupBy(v => v)
+            .OrderByDescending(g => g.Count())
+            .ToList();
+
+        if (!groups.Any())
+            return new List<double>();
+
+        int maxCount = groups.First().Count();
+
+        return groups
+            .Where(g => g.Count() == maxCount)
+            .Select(g => g.Key)
+            .ToList();
+    }
+}
